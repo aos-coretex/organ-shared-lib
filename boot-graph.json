@@ -1,0 +1,18 @@
+{
+  "Spine": [],
+  "Vectr": ["Spine"],
+  "Phi": ["Spine"],
+  "Graph": ["Spine"],
+  "Radiant": ["Spine"],
+  "Minder": ["Spine"],
+  "Lobe": ["Spine", "Radiant", "Minder", "Graph"],
+  "Syntra": ["Spine", "Graph", "Vectr"],
+  "Vigil": ["Spine", "Graph"],
+  "Glia": ["Spine", "Vigil"],
+  "SafeVault": ["Spine"],
+  "GitSync": ["Spine"],
+  "Promote": ["Spine", "GitSync"],
+  "Sourcegraph": ["Spine"],
+  "Engram": ["Spine", "Graph"],
+  "Axon": ["Spine", "Radiant", "Minder", "Graph", "Vigil"]
+}
