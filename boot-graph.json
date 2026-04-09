@@ -14,5 +14,7 @@
   "Promote": ["Spine", "GitSync"],
   "Sourcegraph": ["Spine"],
   "Engram": ["Spine", "Graph"],
-  "Axon": ["Spine", "Radiant", "Minder", "Graph", "Vigil"]
+  "Axon": ["Spine", "Radiant", "Minder", "Graph", "Vigil"],
+  "Hippocampus": ["Spine", "Vectr", "Graph", "Phi"],
+  "Soul": ["Spine", "Hippocampus", "Vectr", "Graph"]
 }
