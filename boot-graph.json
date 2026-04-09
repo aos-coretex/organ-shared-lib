@@ -16,5 +16,6 @@
   "Engram": ["Spine", "Graph"],
   "Axon": ["Spine", "Radiant", "Minder", "Graph", "Vigil"],
   "Hippocampus": ["Spine", "Vectr", "Graph", "Phi"],
-  "Soul": ["Spine", "Hippocampus", "Vectr", "Graph"]
+  "Soul": ["Spine", "Hippocampus", "Vectr", "Graph"],
+  "Arbiter": ["Spine", "Graph"]
 }
