@@ -17,5 +17,6 @@
   "Axon": ["Spine", "Radiant", "Minder", "Graph", "Vigil"],
   "Hippocampus": ["Spine", "Vectr", "Graph", "Phi"],
   "Soul": ["Spine", "Hippocampus", "Vectr", "Graph"],
-  "Arbiter": ["Spine", "Graph"]
+  "Arbiter": ["Spine", "Graph"],
+  "Nomos": ["Spine", "Graph", "Arbiter"]
 }
