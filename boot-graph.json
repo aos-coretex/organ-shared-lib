@@ -19,5 +19,6 @@
   "Soul": ["Spine", "Hippocampus", "Vectr", "Graph"],
   "Arbiter": ["Spine", "Graph"],
   "Nomos": ["Spine", "Graph", "Arbiter"],
-  "Cerberus": ["Spine"]
+  "Cerberus": ["Spine"],
+  "Senate": ["Spine", "Graph", "Arbiter"]
 }
