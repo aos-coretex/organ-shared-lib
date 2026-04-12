@@ -24,5 +24,7 @@
   "Cortex": ["Spine"],
   "Thalamus": ["Spine"],
   "ModelBroker": ["Spine"],
-  "Receptor": ["Spine"]
+  "Receptor": ["Spine"],
+  "MCP-Router": ["Spine"],
+  "MCP-Gateway": ["Spine", "MCP-Router"]
 }
