@@ -21,5 +21,6 @@
   "Nomos": ["Spine", "Graph", "Arbiter"],
   "Cerberus": ["Spine"],
   "Senate": ["Spine", "Graph", "Arbiter"],
-  "Cortex": ["Spine"]
+  "Cortex": ["Spine"],
+  "Thalamus": ["Spine"]
 }
