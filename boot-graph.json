@@ -22,5 +22,7 @@
   "Cerberus": ["Spine"],
   "Senate": ["Spine", "Graph", "Arbiter"],
   "Cortex": ["Spine"],
-  "Thalamus": ["Spine"]
+  "Thalamus": ["Spine"],
+  "ModelBroker": ["Spine"],
+  "Receptor": ["Spine"]
 }
