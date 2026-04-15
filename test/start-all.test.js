@@ -57,8 +57,8 @@ describe('Topological sort', () => {
 
     const order = topologicalSort(graph);
 
-    // All 16 organs present
-    assert.equal(order.length, 16);
+    // All 28 organs present
+    assert.equal(order.length, 28);
 
     // Spine first
     assert.equal(order[0], 'Spine');
