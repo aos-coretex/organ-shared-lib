@@ -6,7 +6,10 @@
     ".": "./lib/organ-boot.js",
     "./spine-client": "./lib/spine-client.js",
     "./urn": "./lib/urn.js",
-    "./llm-client": "./lib/llm-client.js"
+    "./llm-client": "./lib/llm-client.js",
+    "./graph-client": "./lib/graph-client.js",
+    "./governance-urn": "./lib/governance-urn.js",
+    "./statute-cascade": "./lib/statute-cascade.js"
   },
   "scripts": {
     "test": "node --test test/*.test.js"
