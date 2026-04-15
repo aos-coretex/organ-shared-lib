@@ -119,6 +119,62 @@ describe('Spine client — HTTP methods', () => {
     assert.equal(result.status, 'ok');
     client.close();
   });
+
+  // --- sendSafe() — structured-error variant (repair-mcp-router-05) ---
+
+  it('sendSafe() returns { ok: true, status, data } on 2xx', async () => {
+    const client = createSpineClient({ serverUrl: serverInfo.url, organName: 'TestOrgan' });
+    const result = await client.sendSafe({ type: 'OTM', source_organ: 'TestOrgan', target_organ: '*', payload: {} });
+    assert.equal(result.ok, true);
+    assert.equal(result.status, 202);
+    assert.equal(result.data.message_id, 'urn:llm-ops:otm:test');
+    client.close();
+  });
+
+  it('sendSafe() returns structured { ok: false, status, error, message } on 4xx (no throw)', async () => {
+    // Override /messages to return the same 400 that triggered the crash
+    mockSpine.route('POST', '/messages', () => ({
+      status: 400,
+      body: { error: 'ROUTING_FAILED', message: 'Organ not in manifest: graph' },
+    }));
+
+    const client = createSpineClient({ serverUrl: serverInfo.url, organName: 'TestOrgan' });
+    const result = await client.sendSafe({
+      type: 'OTM', source_organ: 'TestOrgan', target_organ: 'graph', payload: {},
+    });
+    assert.equal(result.ok, false);
+    assert.equal(result.status, 400);
+    assert.equal(result.error, 'ROUTING_FAILED');
+    assert.equal(result.message, 'Organ not in manifest: graph');
+    client.close();
+  });
+
+  it('sendSafe() returns { ok: false, error: NETWORK_ERROR } when server is unreachable', async () => {
+    const client = createSpineClient({ serverUrl: 'http://127.0.0.1:1', organName: 'TestOrgan' });
+    const result = await client.sendSafe({ type: 'OTM', source_organ: 'TestOrgan', target_organ: '*', payload: {} });
+    assert.equal(result.ok, false);
+    assert.equal(result.status, 0);
+    assert.equal(result.error, 'NETWORK_ERROR');
+    assert.ok(result.message);
+    client.close();
+  });
+
+  it('send() STILL throws on 4xx (existing contract preserved for other callers)', async () => {
+    mockSpine.route('POST', '/messages', () => ({
+      status: 400,
+      body: { error: 'ROUTING_FAILED', message: 'nope' },
+    }));
+    const client = createSpineClient({ serverUrl: serverInfo.url, organName: 'TestOrgan' });
+    await assert.rejects(
+      () => client.send({ type: 'OTM', source_organ: 'TestOrgan', target_organ: 'graph', payload: {} }),
+      (err) => {
+        assert.equal(err.status, 400);
+        assert.equal(err.message, 'ROUTING_FAILED');
+        return true;
+      }
+    );
+    client.close();
+  });
 });
 
 describe('Spine client — WebSocket', () => {

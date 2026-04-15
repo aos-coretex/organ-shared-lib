@@ -9,7 +9,10 @@
     "./llm-client": "./lib/llm-client.js",
     "./graph-client": "./lib/graph-client.js",
     "./governance-urn": "./lib/governance-urn.js",
-    "./statute-cascade": "./lib/statute-cascade.js"
+    "./statute-cascade": "./lib/statute-cascade.js",
+    "./tool-errors": "./lib/tool-errors.js",
+    "./tool-response-schema": "./lib/tool-response-schema.js",
+    "./tool-fallback-handler": "./lib/tool-fallback-handler.js"
   },
   "scripts": {
     "test": "node --test test/*.test.js"

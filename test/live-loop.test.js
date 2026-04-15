@@ -106,6 +106,135 @@ describe('Live loop engine', () => {
     assert.ok(!spine._state.ackedIds.includes('msg-fail'));
   });
 
+  // --- MP-TOOL-1 D1: tool_call_request interception ---
+
+  it('intercepts tool_call_request via toolCallHandler (drain path)', async () => {
+    let onMessageCalled = false;
+    const spine = createMockSpine({
+      drainResult: {
+        messages: [
+          {
+            message_id: 'tcr-1',
+            target_organ: 'Graph',
+            reply_to: 'mcp-router',
+            payload: { event_type: 'tool_call_request', tool: 'graph__get_stats' },
+          },
+        ],
+      },
+    });
+
+    loop = createLiveLoop({
+      spine,
+      onMessage: async () => { onMessageCalled = true; return null; },
+      toolCallHandler: async (env) => ({
+        event_type: 'tool_call_response',
+        schema_version: '1.0',
+        status: 'SUCCESS',
+        tool: env.payload.tool,
+        data: { concepts: 42 },
+      }),
+      drainInterval: 50,
+    });
+
+    await new Promise(r => setTimeout(r, 200));
+
+    assert.equal(onMessageCalled, false, 'onMessage must not run for tool_call_request');
+    // Drain fires repeatedly; every reply must be shaped correctly.
+    assert.ok(spine._state.sentMessages.length >= 1);
+    for (const reply of spine._state.sentMessages) {
+      assert.equal(reply.target_organ, 'mcp-router');
+      assert.equal(reply.correlation_id, 'tcr-1');
+      assert.equal(reply.payload.status, 'SUCCESS');
+      assert.equal(reply.payload.data.concepts, 42);
+    }
+    assert.ok(spine._state.ackedIds.includes('tcr-1'));
+  });
+
+  it('intercepts tool_call_request via WebSocket push path', async () => {
+    const spine = createMockSpine();
+
+    loop = createLiveLoop({
+      spine,
+      onMessage: async () => null,
+      toolCallHandler: async (env) => ({
+        event_type: 'tool_call_response',
+        schema_version: '1.0',
+        status: 'NOT_IMPLEMENTED',
+        tool: env.payload.tool,
+        reason: 'test',
+      }),
+      drainInterval: 50,
+    });
+
+    // Simulate a WS push (bypasses drain)
+    await spine._state.wsCallbacks.onMessage({
+      message_id: 'ws-1',
+      target_organ: 'Graph',
+      reply_to: 'mcp-router',
+      payload: { event_type: 'tool_call_request', tool: 'graph__bogus' },
+    });
+
+    assert.equal(spine._state.sentMessages.length, 1);
+    assert.equal(spine._state.sentMessages[0].correlation_id, 'ws-1');
+    assert.equal(spine._state.sentMessages[0].payload.status, 'NOT_IMPLEMENTED');
+  });
+
+  it('falls through to onMessage when toolCallHandler is absent', async () => {
+    let onMessageEnvelope = null;
+    const spine = createMockSpine({
+      drainResult: {
+        messages: [
+          {
+            message_id: 'tcr-2',
+            target_organ: 'Graph',
+            reply_to: 'mcp-router',
+            payload: { event_type: 'tool_call_request', tool: 'graph__get_stats' },
+          },
+        ],
+      },
+    });
+
+    loop = createLiveLoop({
+      spine,
+      onMessage: async (env) => { onMessageEnvelope = env; return null; },
+      // no toolCallHandler — should fall through
+      drainInterval: 50,
+    });
+
+    await new Promise(r => setTimeout(r, 200));
+
+    assert.ok(onMessageEnvelope);
+    assert.equal(onMessageEnvelope.message_id, 'tcr-2');
+  });
+
+  it('acks even when toolCallHandler throws (error-isolated)', async () => {
+    const spine = createMockSpine({
+      drainResult: {
+        messages: [
+          {
+            message_id: 'tcr-3',
+            target_organ: 'Graph',
+            reply_to: 'mcp-router',
+            payload: { event_type: 'tool_call_request', tool: 'x' },
+          },
+        ],
+      },
+    });
+
+    loop = createLiveLoop({
+      spine,
+      onMessage: async () => null,
+      toolCallHandler: async () => { throw new Error('boom'); },
+      drainInterval: 50,
+    });
+
+    await new Promise(r => setTimeout(r, 200));
+
+    // Handler threw but we still ack (the error is isolated + logged; the message
+    // is not redelivered, preserving the ping/pong semantics).
+    assert.ok(spine._state.ackedIds.includes('tcr-3'));
+  });
+
   it('skips drain when spine disconnected', async () => {
     let drainCalled = false;
     const spine = createMockSpine();
