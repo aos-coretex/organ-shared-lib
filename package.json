@@ -7,18 +7,33 @@
     "./spine-client": "./lib/spine-client.js",
     "./urn": "./lib/urn.js",
     "./llm-client": "./lib/llm-client.js",
+    "./llm-errors": "./lib/llm-errors.js",
+    "./llm-settings-schema": "./lib/llm-settings-schema.js",
+    "./llm-classifier": "./lib/llm-classifier.js",
+    "./llm-settings-loader": "./lib/llm-settings-loader.js",
+    "./llm-cascade": "./lib/llm-cascade.js",
+    "./pricing-table": "./lib/pricing-table.js",
+    "./budget-policy": "./lib/budget-policy.js",
+    "./llm-usage-writer": "./lib/llm-usage-writer.js",
+    "./usage-attribution": "./lib/usage-attribution.js",
     "./graph-client": "./lib/graph-client.js",
     "./governance-urn": "./lib/governance-urn.js",
     "./statute-cascade": "./lib/statute-cascade.js",
     "./tool-errors": "./lib/tool-errors.js",
     "./tool-response-schema": "./lib/tool-response-schema.js",
-    "./tool-fallback-handler": "./lib/tool-fallback-handler.js"
+    "./tool-fallback-handler": "./lib/tool-fallback-handler.js",
+    "./hf-orchestrator": "./lib/hf-orchestrator.js",
+    "./hf-client": "./lib/hf-client.js",
+    "./inference-server-bootstrap": "./lib/inference-server-bootstrap.js",
+    "./quantization-validator": "./lib/quantization-validator.js"
   },
   "scripts": {
-    "test": "node --test test/*.test.js"
+    "test": "node --test test/*.test.js",
+    "validate-settings": "node scripts/validate-all-settings.js"
   },
   "dependencies": {
     "express": "^5.1.0",
+    "js-yaml": "^4.1.1",
     "ws": "^8.20.0"
   }
 }

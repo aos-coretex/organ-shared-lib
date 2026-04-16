@@ -1,0 +1,13 @@
+schema_version: 1
+organ: cortex
+llm_required: true
+provider: huggingface-autoprovision
+huggingface_autoprovision:
+  repo: "Qwen/Qwen2.5-32B-Instruct-AWQ"
+  revision: "v1.0.0"  # operator re-pins to commit SHA before activation
+  quantization: awq
+deployment_target: "localhost:8000"
+model: "Qwen/Qwen2.5-32B-Instruct-AWQ"
+max_tokens: 4096
+api_key_env_var: "LOCAL_LLM_NONE"
+tenant_urn: urn:llm-ops:entity:llm-ops-platform

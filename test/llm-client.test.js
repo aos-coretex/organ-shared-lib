@@ -242,6 +242,283 @@ describe('LLM Client', () => {
       const [url] = fetchMock.mock.calls[0].arguments;
       assert.equal(url, 'http://127.0.0.1:11434/v1/chat/completions');
     });
+
+    // -----------------------------------------------------------------
+    // R2 hardening tests (relay l9m-2)
+    // -----------------------------------------------------------------
+
+    it('uses config.baseUrl when no per-call override (R2 baseUrl plumbing)', async () => {
+      process.env.TEST_LLM_KEY = 'none';
+
+      const fetchMock = mock.fn(async () => ({
+        ok: true,
+        json: async () => ({ choices: [{ message: { content: 'ok' } }], usage: {} }),
+      }));
+      mock.method(globalThis, 'fetch', fetchMock);
+
+      const client = createLLMClient({
+        agentName: 'vllm-agent',
+        defaultModel: 'Qwen2.5-32B-Instruct-AWQ',
+        defaultProvider: 'openai-compatible',
+        apiKeyEnvVar: 'TEST_LLM_KEY',
+        baseUrl: 'http://gpu-host-01:8000',
+      });
+
+      await client.chat([{ role: 'user', content: 'hi' }]);
+
+      const [url] = fetchMock.mock.calls[0].arguments;
+      assert.equal(url, 'http://gpu-host-01:8000/v1/chat/completions');
+    });
+
+    it('per-call options.baseUrl overrides config.baseUrl', async () => {
+      process.env.TEST_LLM_KEY = 'none';
+
+      const fetchMock = mock.fn(async () => ({
+        ok: true,
+        json: async () => ({ choices: [{ message: { content: 'ok' } }], usage: {} }),
+      }));
+      mock.method(globalThis, 'fetch', fetchMock);
+
+      const client = createLLMClient({
+        agentName: 'flex',
+        defaultModel: 'qwen',
+        defaultProvider: 'openai-compatible',
+        apiKeyEnvVar: 'TEST_LLM_KEY',
+        baseUrl: 'http://default:8000',
+      });
+
+      await client.chat(
+        [{ role: 'user', content: 'hi' }],
+        { baseUrl: 'http://override:9000' },
+      );
+
+      const [url] = fetchMock.mock.calls[0].arguments;
+      assert.equal(url, 'http://override:9000/v1/chat/completions');
+    });
+
+    it('falls back to default baseUrl when neither config nor per-call provides one', async () => {
+      process.env.TEST_LLM_KEY = 'none';
+
+      const fetchMock = mock.fn(async () => ({
+        ok: true,
+        json: async () => ({ choices: [{ message: { content: 'ok' } }], usage: {} }),
+      }));
+      mock.method(globalThis, 'fetch', fetchMock);
+
+      const client = createLLMClient({
+        agentName: 'legacy',
+        defaultModel: 'llama3',
+        defaultProvider: 'openai-compatible',
+        apiKeyEnvVar: 'TEST_LLM_KEY',
+        // no baseUrl
+      });
+
+      await client.chat([{ role: 'user', content: 'hi' }]);
+
+      const [url] = fetchMock.mock.calls[0].arguments;
+      assert.equal(url, 'http://127.0.0.1:11434/v1/chat/completions');
+    });
+
+    it('throws LLMCallError on HTTP 503 with status + body on cause', async () => {
+      process.env.TEST_LLM_KEY = 'none';
+
+      const fetchMock = mock.fn(async () => ({
+        ok: false,
+        status: 503,
+        text: async () => 'Service unavailable',
+      }));
+      mock.method(globalThis, 'fetch', fetchMock);
+
+      const client = createLLMClient({
+        agentName: 'a',
+        defaultModel: 'qwen',
+        defaultProvider: 'openai-compatible',
+        apiKeyEnvVar: 'TEST_LLM_KEY',
+      });
+
+      await assert.rejects(
+        () => client.chat([{ role: 'user', content: 'x' }]),
+        (err) => {
+          assert.equal(err instanceof LLMCallError, true);
+          // structured fields propagate via cause chain
+          assert.equal(err.cause?.status, 503);
+          assert.equal(err.cause?.body, 'Service unavailable');
+          assert.equal(err.cause?.provider, 'openai-compatible');
+          return true;
+        },
+      );
+    });
+
+    it('throws LLMCallError on HTTP 429', async () => {
+      process.env.TEST_LLM_KEY = 'none';
+
+      const fetchMock = mock.fn(async () => ({
+        ok: false,
+        status: 429,
+        text: async () => 'Rate limit',
+      }));
+      mock.method(globalThis, 'fetch', fetchMock);
+
+      const client = createLLMClient({
+        agentName: 'a',
+        defaultModel: 'qwen',
+        defaultProvider: 'openai-compatible',
+        apiKeyEnvVar: 'TEST_LLM_KEY',
+      });
+
+      await assert.rejects(
+        () => client.chat([{ role: 'user', content: 'x' }]),
+        (err) => {
+          assert.equal(err.cause?.status, 429);
+          return true;
+        },
+      );
+    });
+
+    it('throws LLMCallError on connection refused (preserves cause for classifier)', async () => {
+      process.env.TEST_LLM_KEY = 'none';
+
+      const fetchMock = mock.fn(async () => {
+        const e = new Error('connect ECONNREFUSED 127.0.0.1:11434');
+        e.code = 'ECONNREFUSED';
+        throw e;
+      });
+      mock.method(globalThis, 'fetch', fetchMock);
+
+      const client = createLLMClient({
+        agentName: 'a',
+        defaultModel: 'qwen',
+        defaultProvider: 'openai-compatible',
+        apiKeyEnvVar: 'TEST_LLM_KEY',
+      });
+
+      await assert.rejects(
+        () => client.chat([{ role: 'user', content: 'x' }]),
+        (err) => {
+          assert.equal(err instanceof LLMCallError, true);
+          // cause chain: LLMCallError → providerError (with cause: original)
+          assert.equal(err.cause?.cause?.code, 'ECONNREFUSED');
+          assert.equal(err.cause?.provider, 'openai-compatible');
+          return true;
+        },
+      );
+    });
+
+    it('preserves "model not loaded" body verbatim for classifier inspection', async () => {
+      process.env.TEST_LLM_KEY = 'none';
+
+      const fetchMock = mock.fn(async () => ({
+        ok: false,
+        status: 503,
+        text: async () => '{"error":"Model not loaded; please retry"}',
+      }));
+      mock.method(globalThis, 'fetch', fetchMock);
+
+      const client = createLLMClient({
+        agentName: 'a',
+        defaultModel: 'qwen',
+        defaultProvider: 'openai-compatible',
+        apiKeyEnvVar: 'TEST_LLM_KEY',
+      });
+
+      await assert.rejects(
+        () => client.chat([{ role: 'user', content: 'x' }]),
+        (err) => {
+          assert.match(err.cause?.body, /Model not loaded/);
+          assert.equal(err.cause?.status, 503);
+          return true;
+        },
+      );
+    });
+  });
+
+  // -------------------------------------------------------------------
+  // R2 — Anthropic regression marker (behavior preserved)
+  // -------------------------------------------------------------------
+
+  describe('chat — Anthropic regression (R2 must not alter)', () => {
+    it('Anthropic URL, headers, and body shape unchanged post-R2', async () => {
+      process.env.TEST_LLM_KEY = 'sk-r2-regression';
+
+      const fetchMock = mock.fn(async () => ({
+        ok: true,
+        json: async () => ({
+          content: [{ type: 'text', text: 'preserved' }],
+          model: 'claude-haiku-4-5-20251001',
+          usage: { input_tokens: 1, output_tokens: 1 },
+        }),
+      }));
+      mock.method(globalThis, 'fetch', fetchMock);
+
+      const client = createLLMClient({
+        agentName: 'regression-anthropic',
+        defaultModel: 'claude-haiku-4-5-20251001',
+        defaultProvider: 'anthropic',
+        apiKeyEnvVar: 'TEST_LLM_KEY',
+        maxTokens: 256,
+      });
+
+      await client.chat([{ role: 'user', content: 'pin' }]);
+
+      const [url, opts] = fetchMock.mock.calls[0].arguments;
+      // R2 must not alter ANY of these.
+      assert.equal(url, 'https://api.anthropic.com/v1/messages');
+      assert.equal(opts.method, 'POST');
+      assert.equal(opts.headers['x-api-key'], 'sk-r2-regression');
+      assert.equal(opts.headers['anthropic-version'], '2023-06-01');
+      assert.equal(opts.headers['Content-Type'], 'application/json');
+      // No AbortController signal on the Anthropic path (R2 timeout is openai-compat-only).
+      assert.equal(opts.signal, undefined);
+    });
+  });
+
+  // -------------------------------------------------------------------
+  // R2 — bug #8 pinning (createLLMClient(configObject) signature exact)
+  // -------------------------------------------------------------------
+
+  describe('createLLMClient bug #8 pinning (signature + field names exact)', () => {
+    it('accepts config positional argument with all 8 documented fields', () => {
+      // Constructor must not throw for any of the documented fields.
+      const client = createLLMClient({
+        agentName: 'pin',
+        defaultModel: 'claude-haiku-4-5-20251001',
+        defaultProvider: 'anthropic',
+        apiKeyEnvVar: 'TEST_LLM_KEY',
+        maxTokens: 1024,
+        thinking: false,
+        thinkingBudget: 10000,
+        baseUrl: 'http://example:8000',
+      });
+      assert.equal(typeof client.chat, 'function');
+      assert.equal(typeof client.isAvailable, 'function');
+      assert.equal(typeof client.getUsage, 'function');
+    });
+
+    it('returns the documented {chat, isAvailable, getUsage} shape (no extra keys)', () => {
+      const client = createLLMClient({
+        agentName: 'pin',
+        defaultModel: 'claude-haiku-4-5-20251001',
+      });
+      const keys = Object.keys(client).sort();
+      assert.deepEqual(keys, ['chat', 'getUsage', 'isAvailable']);
+    });
+
+    it('getUsage returns flat fields (agent, model, provider, total_input, total_output, total_calls, errors)', () => {
+      process.env.TEST_LLM_KEY = 'sk-test';
+      const client = createLLMClient({
+        agentName: 'pin',
+        defaultModel: 'claude-haiku-4-5-20251001',
+        apiKeyEnvVar: 'TEST_LLM_KEY',
+      });
+      const u = client.getUsage();
+      assert.equal(u.agent, 'pin');
+      assert.equal(u.model, 'claude-haiku-4-5-20251001');
+      assert.equal(u.provider, 'anthropic');
+      assert.equal(u.total_input, 0);
+      assert.equal(u.total_output, 0);
+      assert.equal(u.total_calls, 0);
+      assert.equal(u.errors, 0);
+    });
   });
 
   describe('usage tracking', () => {
