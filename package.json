@@ -31,7 +31,8 @@
   },
   "scripts": {
     "test": "node --test test/*.test.js",
-    "validate-settings": "node scripts/validate-all-settings.js"
+    "validate-settings": "node scripts/validate-all-settings.js",
+    "test:e2e": "node --test test/e2e/*.e2e.test.js"
   },
   "dependencies": {
     "express": "^5.1.0",
