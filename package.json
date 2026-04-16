@@ -25,7 +25,9 @@
     "./hf-orchestrator": "./lib/hf-orchestrator.js",
     "./hf-client": "./lib/hf-client.js",
     "./inference-server-bootstrap": "./lib/inference-server-bootstrap.js",
-    "./quantization-validator": "./lib/quantization-validator.js"
+    "./quantization-validator": "./lib/quantization-validator.js",
+    "./erlang-bridge-exporter": "./lib/erlang-bridge-exporter.js",
+    "./erlang-bridge-importer": "./lib/erlang-bridge-importer.js"
   },
   "scripts": {
     "test": "node --test test/*.test.js",
