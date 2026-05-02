@@ -4,7 +4,7 @@
  * The writer must:
  *   - call graphClient.insertConcept with type 'llm_usage_event' + a URN that
  *     matches `urn:llm-ops:llm_usage_event:<id>`
- *   - call graphClient.insertBinding with relation 'llm-usage' from tenant to event
+ *   - call graphClient.insertBinding with relation 'llm_usage' from tenant to event
  *   - use infrastructure-exemption (no Spine OTM): mock a Spine client and
  *     assert no call happened
  *   - be fire-and-forget (synchronous return; internal promise catches errors)
@@ -20,6 +20,8 @@ import {
   buildModelUrn,
   buildAgentUrn,
   buildOrganUrn,
+  UBN_RE,
+  RELATION_RE,
 } from '../lib/llm-usage-writer.js';
 
 function makeMockGraph() {
@@ -92,9 +94,12 @@ describe('llm-usage-writer', () => {
 
     assert.equal(graph.calls.bindings.length, 1);
     const b = graph.calls.bindings[0];
-    assert.equal(b.data.relation, 'llm-usage');
+    assert.equal(b.data.relation, 'llm_usage');
     assert.equal(b.data.from_urn, 'urn:llm-ops:entity:llm-ops-platform');
     assert.equal(b.data.to_urn, c.urn);
+    // Schema-gate conformance (Graph binding.schema.json).
+    assert.match(b.ubn, UBN_RE);
+    assert.match(b.data.relation, RELATION_RE);
   });
 
   it('infrastructure-exemption: no Spine OTM emitted (governance bypass)', async () => {
@@ -182,7 +187,7 @@ describe('llm-usage-writer', () => {
     assert.equal(schema.type, 'llm_usage_event');
     assert.ok(schema.required_fields.includes('cost_usd'));
     assert.ok(schema.required_fields.includes('tenant_urn'));
-    assert.equal(schema.binding_relation, 'llm-usage');
+    assert.equal(schema.binding_relation, 'llm_usage');
   });
 
   it('URN builders produce MP-17 compliant shapes', () => {
@@ -204,6 +209,115 @@ describe('llm-usage-writer', () => {
     await flush();
     assert.equal(graph.calls.concepts.length, 0);
     assert.equal(logged.filter((l) => l.event === 'llm_usage_writer_invalid_event').length, 3);
+  });
+
+  it('UBN_RE accepts schema-compliant UBN and rejects hyphen in third segment', () => {
+    // Positive: third segment is snake_case (underscore or alnum only).
+    assert.match('ubn:llm-ops:llm_usage:2026-04-22T17-51-11-904Z-abc123', UBN_RE);
+    assert.match('ubn:ns:a_b_c:anything-with-dashes-ok', UBN_RE);
+    // Negative drift: third segment must not contain a hyphen — this is the
+    // exact regression this repair closes (`llm-usage` in UBN segment 3).
+    assert.ok(!UBN_RE.test('ubn:llm-ops:llm-usage:2026-04-22T17-51-11-904Z-abc123'),
+      'UBN third segment must not contain a hyphen');
+    assert.ok(!UBN_RE.test('urn:llm-ops:llm_usage:x'), 'must start with "ubn:"');
+  });
+
+  it('RELATION_RE accepts snake_case relations and rejects hyphen', () => {
+    // Positive: lowercase, starting with a letter, underscores allowed.
+    assert.match('llm_usage', RELATION_RE);
+    assert.match('class_binding', RELATION_RE);
+    assert.match('a', RELATION_RE);
+    // Negative drift: hyphen forbidden — the second offender in this repair.
+    assert.ok(!RELATION_RE.test('llm-usage'), 'relation must not contain a hyphen');
+    assert.ok(!RELATION_RE.test('LLMUsage'), 'relation must be lowercase');
+    assert.ok(!RELATION_RE.test('1_leading_digit'), 'relation must start with a letter');
+  });
+
+  it('runtime emission is schema-compliant — UBN + relation both pass Graph schema gate', async () => {
+    const graph = makeMockGraph();
+    const writer = createUsageWriter({
+      graphClient: graph,
+      now: () => new Date('2026-04-22T17:51:11.904Z'),
+      randomHex: () => 'abc123',
+    });
+    writer.writeLLMUsageEvent({
+      tenant_urn: 'urn:llm-ops:entity:llm-ops-platform',
+      organ: 'cortex',
+      agent: 'strategic-assessor',
+      provider: 'anthropic',
+      model: 'claude-haiku-4-5-20251001',
+      tokens_in: 10, tokens_out: 5,
+    });
+    await flush();
+    const b = graph.calls.bindings[0];
+    // Verbatim pre-fix offenders — lock in the correction.
+    assert.ok(!b.ubn.startsWith('ubn:llm-ops:llm-usage:'),
+      'UBN must no longer emit hyphen in third segment');
+    assert.notEqual(b.data.relation, 'llm-usage',
+      'relation must no longer be "llm-usage"');
+    assert.equal(b.data.relation, 'llm_usage');
+    assert.match(b.ubn, UBN_RE);
+    assert.match(b.data.relation, RELATION_RE);
+  });
+
+  it('emits flat tag fields host_type, silicon, llm_model alongside model_urn (invariant #5)', async () => {
+    const graph = makeMockGraph();
+    const writer = createUsageWriter({
+      graphClient: graph,
+      hostIdentity: () => ({ host_type: 'mbp', silicon: 'm4-max' }),
+    });
+    writer.writeLLMUsageEvent({
+      tenant_urn: 'urn:llm-ops:entity:llm-ops-platform',
+      organ: 'cortex',
+      agent: 'strategic-assessor',
+      provider: 'openai-compatible',
+      model: 'gemma-4-31b-it-q8-mlx-local',
+      tokens_in: 500,
+      tokens_out: 250,
+    });
+    await flush();
+    const d = graph.calls.concepts[0].data;
+    assert.equal(d.host_type, 'mbp', 'host_type must come from writer-internal accessor');
+    assert.equal(d.silicon, 'm4-max', 'silicon must come from writer-internal accessor');
+    assert.equal(d.llm_model, 'gemma-4-31b-it-q8-mlx-local', 'llm_model must be event.model verbatim');
+    assert.equal(
+      d.model_urn,
+      'urn:llm-ops:model:openai-compatible:gemma-4-31b-it-q8-mlx-local',
+      'model_urn must coexist unchanged — no replacement',
+    );
+  });
+
+  it('getLLMUsageConceptSchema lists host_type, silicon, llm_model in required_fields', () => {
+    const graph = makeMockGraph();
+    const writer = createUsageWriter({ graphClient: graph });
+    const { required_fields } = writer.getLLMUsageConceptSchema();
+    assert.ok(required_fields.includes('host_type'), 'host_type must be in required_fields');
+    assert.ok(required_fields.includes('silicon'), 'silicon must be in required_fields');
+    assert.ok(required_fields.includes('llm_model'), 'llm_model must be in required_fields');
+    assert.ok(required_fields.includes('model_urn'), 'model_urn must remain in required_fields (coexistence)');
+  });
+
+  it('host identity is sourced per-write (not frozen at factory construction)', async () => {
+    const graph = makeMockGraph();
+    let currentHost = { host_type: 'mbp', silicon: 'm4-max' };
+    const writer = createUsageWriter({
+      graphClient: graph,
+      hostIdentity: () => currentHost,
+    });
+    writer.writeLLMUsageEvent({
+      tenant_urn: 'urn:llm-ops:entity:test', organ: 'cortex', agent: 'a',
+      provider: 'anthropic', model: 'claude-haiku-4-5-20251001',
+      tokens_in: 0, tokens_out: 0,
+    });
+    currentHost = { host_type: 'mac-mini', silicon: 'm2-pro' };
+    writer.writeLLMUsageEvent({
+      tenant_urn: 'urn:llm-ops:entity:test', organ: 'cortex', agent: 'a',
+      provider: 'anthropic', model: 'claude-haiku-4-5-20251001',
+      tokens_in: 0, tokens_out: 0,
+    });
+    await flush();
+    assert.equal(graph.calls.concepts[0].data.host_type, 'mbp');
+    assert.equal(graph.calls.concepts[1].data.host_type, 'mac-mini');
   });
 
   it('setDefaultUsageWriter / getDefaultUsageWriter round-trip', () => {
