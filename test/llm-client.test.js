@@ -612,4 +612,156 @@ describe('LLM Client', () => {
       assert.equal(body.model, 'claude-sonnet-4-6');
     });
   });
+
+  // -------------------------------------------------------------------
+  // Path C task 5 — proxy routing (CrD §1.13 binding rule #39)
+  // -------------------------------------------------------------------
+
+  describe('chat — proxy routing (Path C task 5)', () => {
+    const originalProxyKey = {};
+
+    beforeEach(() => {
+      originalProxyKey.LITELLM_MASTER_KEY = process.env.LITELLM_MASTER_KEY;
+      delete process.env.LITELLM_MASTER_KEY;
+    });
+
+    afterEach(() => {
+      if (originalProxyKey.LITELLM_MASTER_KEY !== undefined) {
+        process.env.LITELLM_MASTER_KEY = originalProxyKey.LITELLM_MASTER_KEY;
+      } else {
+        delete process.env.LITELLM_MASTER_KEY;
+      }
+    });
+
+    it('proxy-routed call attaches master_key as Bearer when present', async () => {
+      process.env.LITELLM_MASTER_KEY = 'test-master-key-abc123';
+
+      const fetchMock = mock.fn(async () => ({
+        ok: true,
+        json: async () => ({
+          choices: [{ message: { content: 'OK' } }],
+          usage: { prompt_tokens: 10, completion_tokens: 5 },
+        }),
+      }));
+      mock.method(globalThis, 'fetch', fetchMock);
+
+      const client = createLLMClient({
+        agentName: 'test-agent',
+        defaultModel: 'gpt-test',
+        defaultProvider: 'openai-compatible',
+        apiKeyEnvVar: 'NONEXISTENT_KEY_FOR_TEST',
+        baseUrl: 'http://127.0.0.1:3810/v1',
+        routedThroughProxy: true,
+      });
+
+      await client.chat([{ role: 'user', content: 'OK' }]);
+
+      const headers = fetchMock.mock.calls[0].arguments[1].headers;
+      assert.equal(headers.Authorization, 'Bearer test-master-key-abc123');
+    });
+
+    it('proxy-routed call sends no Authorization header when master_key absent (Interpretation A)', async () => {
+      // master_key intentionally absent (deleted in beforeEach)
+
+      const fetchMock = mock.fn(async () => ({
+        ok: true,
+        json: async () => ({
+          choices: [{ message: { content: 'OK' } }],
+          usage: { prompt_tokens: 10, completion_tokens: 5 },
+        }),
+      }));
+      mock.method(globalThis, 'fetch', fetchMock);
+
+      const client = createLLMClient({
+        agentName: 'test-agent',
+        defaultModel: 'gpt-test',
+        defaultProvider: 'openai-compatible',
+        apiKeyEnvVar: 'NONEXISTENT_KEY_FOR_TEST',
+        baseUrl: 'http://127.0.0.1:3810/v1',
+        routedThroughProxy: true,
+      });
+
+      // Should NOT throw under Interpretation A
+      assert.equal(client.isAvailable(), true);
+
+      await client.chat([{ role: 'user', content: 'OK' }]);
+
+      const headers = fetchMock.mock.calls[0].arguments[1].headers;
+      assert.equal(headers.Authorization, undefined,
+        'no Authorization header expected under Interpretation A unauth-loopback');
+    });
+
+    it('non-proxy call attaches apiKey as Bearer (existing behavior preserved)', async () => {
+      process.env.TEST_LLM_KEY = 'test-openrouter-key-xyz789';
+
+      const fetchMock = mock.fn(async () => ({
+        ok: true,
+        json: async () => ({
+          choices: [{ message: { content: 'OK' } }],
+          usage: { prompt_tokens: 10, completion_tokens: 5 },
+        }),
+      }));
+      mock.method(globalThis, 'fetch', fetchMock);
+
+      const client = createLLMClient({
+        agentName: 'test-agent',
+        defaultModel: 'gpt-test',
+        defaultProvider: 'openai-compatible',
+        apiKeyEnvVar: 'TEST_LLM_KEY',
+        baseUrl: 'http://openrouter.ai/api/v1',
+        // routedThroughProxy NOT set — defaults to false
+      });
+
+      await client.chat([{ role: 'user', content: 'OK' }]);
+
+      const headers = fetchMock.mock.calls[0].arguments[1].headers;
+      assert.equal(headers.Authorization, 'Bearer test-openrouter-key-xyz789');
+    });
+
+    it('Anthropic provider + routedThroughProxy:true throws configuration error', async () => {
+      process.env.ANTHROPIC_API_KEY = 'test-anthropic-key';
+
+      const client = createLLMClient({
+        agentName: 'test-agent',
+        defaultModel: 'claude-test',
+        defaultProvider: 'anthropic',
+        apiKeyEnvVar: 'ANTHROPIC_API_KEY',
+        routedThroughProxy: true,  // misconfiguration
+      });
+
+      await assert.rejects(
+        () => client.chat([{ role: 'user', content: 'OK' }]),
+        /routedThroughProxy is incompatible with defaultProvider="anthropic"/,
+      );
+    });
+
+    it('master_key rotation between calls picks up new value (per-call env read)', async () => {
+      const fetchMock = mock.fn(async () => ({
+        ok: true,
+        json: async () => ({
+          choices: [{ message: { content: 'OK' } }],
+          usage: { prompt_tokens: 10, completion_tokens: 5 },
+        }),
+      }));
+      mock.method(globalThis, 'fetch', fetchMock);
+
+      const client = createLLMClient({
+        agentName: 'test-agent',
+        defaultModel: 'gpt-test',
+        defaultProvider: 'openai-compatible',
+        apiKeyEnvVar: 'NONEXISTENT_KEY_FOR_TEST',
+        baseUrl: 'http://127.0.0.1:3810/v1',
+        routedThroughProxy: true,
+      });
+
+      process.env.LITELLM_MASTER_KEY = 'key-v1';
+      await client.chat([{ role: 'user', content: 'OK' }]);
+
+      process.env.LITELLM_MASTER_KEY = 'key-v2';
+      await client.chat([{ role: 'user', content: 'OK' }]);
+
+      assert.equal(fetchMock.mock.calls[0].arguments[1].headers.Authorization, 'Bearer key-v1');
+      assert.equal(fetchMock.mock.calls[1].arguments[1].headers.Authorization, 'Bearer key-v2');
+    });
+  });
 });
